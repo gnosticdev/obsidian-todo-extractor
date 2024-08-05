@@ -16,7 +16,7 @@ export interface TodoExtractorSettings {
 	autoPullInterval: number // in minutes, 0 means disabled
 	fileExtensions: string[]
 	editorPrefix: string
-	todoRegex: string
+	todoCommentPattern: string
 }
 
 export class TodoExtractorSettingTab extends PluginSettingTab {
@@ -175,9 +175,9 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 			.addText((text) =>
 				text
 					.setPlaceholder('//\\s*TODO:')
-					.setValue(this.plugin.settings.todoRegex)
+					.setValue(this.plugin.settings.todoCommentPattern)
 					.onChange(async (value) => {
-						this.plugin.settings.todoRegex = value
+						this.plugin.settings.todoCommentPattern = value
 						await this.plugin.saveSettings()
 					}),
 			)

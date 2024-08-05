@@ -1,6 +1,6 @@
 import * as path from 'node:path'
 import { Notice, Plugin, TFile } from 'obsidian'
-import simpleGit from 'simple-git'
+import simpleGit, { grepQueryBuilder } from 'simple-git'
 import type { SimpleGit } from 'simple-git/dist/typings/simple-git'
 import { TodoExtractorSettingTab, type TodoExtractorSettings } from './settings'
 
@@ -22,10 +22,10 @@ const DEFAULT_SETTINGS = {
 	todoNote: 'Code TODOs',
 	noteTag: '',
 	autoPullInterval: 0,
-	fileExtensions: ['ts', 'js', 'tsx', 'jsx'],
+	fileExtensions: ['ts', 'js', 'tsx', 'jsx', 'py'],
 	editorPrefix: 'vscode',
 	// double escape
-	todoRegex: '//\\s*TODO:',
+	todoCommentPattern: '//\\s*TODO:',
 } satisfies TodoExtractorSettings
 
 export const styleText = (style: keyof typeof colorMap, text: string) => {
@@ -93,7 +93,12 @@ export default class TodoExtractorPlugin extends Plugin {
 	 * Use git grep to search for TODOs in the Repository
 	 */
 	public async grepTodos() {
-		const matches = await this.git.grep(this.settings.todoRegex)
+		// gets the todos for ts, js, tsx, jsx files
+		const query = grepQueryBuilder(this.settings.todoCommentPattern).param(
+			'#\\s*TODO:',
+		)
+		console.log('Grep query:', query)
+		const matches = await this.git.grep(query)
 
 		const results: TodoResult[] = []
 		for (const _path of matches.paths) {
@@ -168,10 +173,12 @@ export default class TodoExtractorPlugin extends Plugin {
 				.map((todo) => {
 					const absolutePath = path.resolve(this.settings.repoPath, todo.file)
 					const editorLink = `${this.settings.editorPrefix}://file/${absolutePath}:${todo.line}`
-					const matcher = todo.text.replace(/\/\//, '').trim()
+					const matcher = todo.text.replace(/\/\/|\/\*|\*\/|\{|\}/g, '').trim()
+
+					console.log('matcher:', matcher)
 					return {
 						matcher,
-						line: `- [ ] ${todo.text.replace(/\/\//, '').trim()} [${todo.file}:${todo.line}](${editorLink})`,
+						line: `- [ ] ${matcher} [${todo.file}:${todo.line}](${editorLink})`,
 					}
 				})
 				.filter((todoLine) => !existingTodos.has(todoLine.matcher))

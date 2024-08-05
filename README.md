@@ -19,16 +19,29 @@ Sync your codebase TODOs with Obsidian.
 
 This plugin uses [simple-git](https://github.com/steveukx/git-js) to scan your local repo, then uses the `git grep` command to find all TODOs in the codebase. It then creates or updates a markdown file in Obsidian with all the TODOs.
 
+## Limitations
+
+Only works with the following comment styles:
+
+```ts
+// TODO: some task
+/* TODO: some other task */
+{/* TODO: for JSX */}
+# TODO: for Python
+```
+
 ## Features
 
+- [x] Add a link back to the code file and line number (opens via editor prefix)
 - [x] Scan local repo for TODOs
-- [x] Create markdown file in Obsidian with TODOs
-- [x] Update markdown file in Obsidian with new TODOs
+- [x] Create/Update markdown file in Obsidian with TODOs
 - [x] Deduplicate existing TODOs in Obsidian
-- [ ] Remove TODOs that are no longer in the codebase
+- [ ] Remove TODOs that are no longer in the codebase.
 - [ ] Add support for other tags like FIXME, NOTE, etc.
 - [x] Add support for custom tags
 - [ ] Add support for custom file paths
+- [ ] Add support for custom regex patterns
+- [ ] Add support for other comment styles
 
 ## Settings
 
