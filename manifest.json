@@ -1,11 +1,10 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
-	"version": "1.0.0",
+	"author": "gnosticdev",
+	"authorUrl": "https://github.com/gnosticdev",
+	"description": "Extracts your todos from your codebase and adds them to a note.",
+	"id": "todo-extractor",
+	"isDesktopOnly": true,
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
-	"isDesktopOnly": false
+	"name": "Todo Extractor",
+	"version": "1.0.0"
 }
