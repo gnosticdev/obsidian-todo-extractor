@@ -173,7 +173,9 @@ export default class TodoExtractorPlugin extends Plugin {
 				.map((todo) => {
 					const absolutePath = path.resolve(this.settings.repoPath, todo.file)
 					const editorLink = `${this.settings.editorPrefix}://file/${absolutePath}:${todo.line}`
-					const matcher = todo.text.replace(/\/\/|\/\*|\*\/|\{|\}/g, '').trim()
+					const matcher = todo.text
+						.replace(/\/\/|\/\*|\*\/|\{|\}|\#/g, '')
+						.trim()
 
 					console.log('matcher:', matcher)
 					return {

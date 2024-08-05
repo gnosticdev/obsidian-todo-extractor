@@ -1,6 +1,6 @@
-/* TODO: test this */
+// TODO: ts test single line
+const anotherFunction = () => {}
+
+/* TODO: ts test multiline */
 
 const someFunction = () => {}
-
-// TODO: test this too
-const anotherFunction = () => {}
