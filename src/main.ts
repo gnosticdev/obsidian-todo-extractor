@@ -2,7 +2,11 @@ import * as path from 'node:path'
 import { Notice, Plugin, TFile } from 'obsidian'
 import simpleGit, { grepQueryBuilder } from 'simple-git'
 import type { SimpleGit } from 'simple-git/dist/typings/simple-git'
-import { TodoExtractorSettingTab, type TodoExtractorSettings } from './settings'
+import {
+	DEFAULT_SETTINGS,
+	TodoExtractorSettingTab,
+	type TodoExtractorSettings,
+} from './settings'
 
 // create style text for console log
 const colorMap = {
@@ -15,18 +19,6 @@ const colorMap = {
 type TodoResult = { text: string; file: string; line: number }
 
 const TODO_REGEX_MD = /- \[[ xX]\] (TODO: .*?) \[.*\]\((.*)\)/
-
-const DEFAULT_SETTINGS = {
-	repoPath: '',
-	branchName: 'main',
-	todoNote: 'Code TODOs',
-	noteTag: '',
-	autoPullInterval: 0,
-	fileExtensions: ['ts', 'js', 'tsx', 'jsx', 'py'],
-	editorPrefix: 'vscode',
-	// double escape
-	todoCommentPattern: '//\\s*TODO:',
-} satisfies TodoExtractorSettings
 
 export const styleText = (style: keyof typeof colorMap, text: string) => {
 	const color = colorMap[style as keyof typeof colorMap] || ''
@@ -94,9 +86,11 @@ export default class TodoExtractorPlugin extends Plugin {
 	 */
 	public async grepTodos() {
 		// gets the todos for ts, js, tsx, jsx files
-		const query = grepQueryBuilder(this.settings.todoCommentPattern).param(
-			'#\\s*TODO:',
-		)
+		const patterns = this.settings.todoCommentPattern.split(',')
+		let query = grepQueryBuilder(patterns[0]!)
+		for (let i = 1; i < patterns.length; i++) {
+			query = query.param(patterns[i]!)
+		}
 		console.log('Grep query:', query)
 		const matches = await this.git.grep(query)
 

@@ -19,6 +19,18 @@ export interface TodoExtractorSettings {
 	todoCommentPattern: string
 }
 
+export const DEFAULT_SETTINGS = {
+	repoPath: '',
+	branchName: 'main',
+	todoNote: 'Code TODOs',
+	noteTag: '',
+	autoPullInterval: 0,
+	fileExtensions: ['ts', 'js', 'tsx', 'jsx', 'py'],
+	editorPrefix: 'vscode',
+	// double escape
+	todoCommentPattern: '//\\s*TODO:,#\\s*TODO:',
+} satisfies TodoExtractorSettings
+
 export class TodoExtractorSettingTab extends PluginSettingTab {
 	plugin: TodoExtractorPlugin
 
@@ -177,6 +189,11 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 					.setPlaceholder('//\\s*TODO:')
 					.setValue(this.plugin.settings.todoCommentPattern)
 					.onChange(async (value) => {
+						if (!value) {
+							this.plugin.settings.todoCommentPattern =
+								DEFAULT_SETTINGS.todoCommentPattern
+							return new Notice('Not a valid value, using default')
+						}
 						this.plugin.settings.todoCommentPattern = value
 						await this.plugin.saveSettings()
 					}),
