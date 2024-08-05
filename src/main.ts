@@ -120,6 +120,15 @@ export default class TodoExtractorPlugin extends Plugin {
 	}
 
 	async saveSettings() {
+		console.log('Saving todo extractor settings:', this.settings)
+		for (const [key, value] of Object.entries(this.settings)) {
+			if (!value) {
+				console.log('Setting default value for:', key)
+				Object.assign(this.settings, {
+					[key]: DEFAULT_SETTINGS[key as keyof TodoExtractorSettings],
+				})
+			}
+		}
 		await this.saveData(this.settings)
 	}
 

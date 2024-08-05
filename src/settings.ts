@@ -63,23 +63,27 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 					.setButtonText('Check')
 					.setTooltip('Checks if the folder path is valid')
 					.onClick(async () => {
-						let repoPath = this.plugin.settings.repoPath
-						if (!repoPath) {
-							return new Notice('Please enter a folder path.')
+						if (!this.plugin.settings.repoPath) {
+							return new Notice('Please enter a repo folder path.')
 						}
-						if (repoPath.includes('https://') || repoPath.includes('http://')) {
+						if (
+							this.plugin.settings.repoPath.includes('https://') ||
+							this.plugin.settings.repoPath.includes('http://')
+						) {
 							return new Notice('URLs are not currently supported.')
 						}
-						if (!fs.existsSync(repoPath)) {
+						if (!fs.existsSync(this.plugin.settings.repoPath)) {
 							return new Notice('repo path does not exist.')
 						}
-						if (!path.isAbsolute(repoPath)) {
+						if (!path.isAbsolute(this.plugin.settings.repoPath)) {
 							return new Notice('Please enter an absolute folder path.')
 						}
 
-						repoPath = normalizePath(repoPath)
+						this.plugin.settings.repoPath = normalizePath(
+							this.plugin.settings.repoPath,
+						)
 
-						simpleGit(repoPath).checkIsRepo(
+						simpleGit(this.plugin.settings.repoPath).checkIsRepo(
 							CheckRepoActions.IS_REPO_ROOT,
 							(err, isRepo) => {
 								if (err) {
@@ -93,8 +97,7 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 								)
 							},
 						)
-						this.plugin.settings.repoPath = repoPath
-						console.log('repo path', repoPath)
+						console.log('saving repo path', this.plugin.settings.repoPath)
 						await this.plugin.saveSettings()
 					})
 			})

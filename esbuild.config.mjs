@@ -35,10 +35,10 @@ const context = await esbuild.context({
 	],
 	plugins: [
 		{
-			name: 'run rsync on rebuild',
+			name: 'run cp on rebuild',
 			setup: (build) => {
 				build.onStart(async () => {
-					await Bun.$`echo 'starting rebuild...' && bun run sync`
+					await Bun.$`echo 'starting rebuild...' && ./rsync.sh`
 				})
 			},
 		},

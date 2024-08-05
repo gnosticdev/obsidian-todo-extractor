@@ -6,7 +6,7 @@
 	"scripts": {
 		"dev": "tsc && bun run lint && bun esbuild.config.mjs",
 		"build": "tsc && bun run lint && bun esbuild.config.mjs production",
-		"sync": "rsync -avh --include main.js --include data.json --include style.css --include versions.json --exclude='*' . '/Users/divinelight/Library/Mobile Documents/iCloud~md~obsidian/Documents/.obsidian/plugins/obsidian-todo-extractor'",
+		"sync": "./rsync.sh",
 		"version": "bun version-bump.mjs && git add manifest.json versions.json",
 		"lint": "biome check . --write --unsafe"
 	},
