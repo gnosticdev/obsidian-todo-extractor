@@ -1,3 +1,5 @@
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import {
 	type App,
 	Notice,
@@ -28,7 +30,7 @@ export const DEFAULT_SETTINGS = {
 	fileExtensions: ['ts', 'js', 'tsx', 'jsx', 'py'],
 	editorPrefix: 'vscode',
 	// double escape
-	todoCommentPattern: '//\\s*TODO:,#\\s*TODO:',
+	todoCommentPattern: '//\\s*TODO:,#\\s*TODO:,{/\\*\\s*TODO:',
 } satisfies TodoExtractorSettings
 
 export class TodoExtractorSettingTab extends PluginSettingTab {
@@ -66,7 +68,13 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 							return new Notice('Please enter a folder path.')
 						}
 						if (repoPath.includes('https://') || repoPath.includes('http://')) {
-							return new Notice('URLs are not supported.')
+							return new Notice('URLs are not currently supported.')
+						}
+						if (!fs.existsSync(repoPath)) {
+							return new Notice('repo path does not exist.')
+						}
+						if (!path.isAbsolute(repoPath)) {
+							return new Notice('Please enter an absolute folder path.')
 						}
 
 						repoPath = normalizePath(repoPath)
@@ -183,16 +191,18 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('TODO pattern')
-			.setDesc('pattern to match TODOs in code')
+			.setDesc(
+				'Pattern to match TODOs in code. NOTE: common regex only, need to double escape, and separate with a comma for multiple patterns. default: //\\s*TODO:,#\\s*TODO:,{/\\*\\s*TODO:',
+			)
 			.addText((text) =>
 				text
-					.setPlaceholder('//\\s*TODO:')
+					.setPlaceholder('//\\s*TODO:,#\\s*TODO:,{/\\*\\s*TODO:')
 					.setValue(this.plugin.settings.todoCommentPattern)
 					.onChange(async (value) => {
 						if (!value) {
 							this.plugin.settings.todoCommentPattern =
 								DEFAULT_SETTINGS.todoCommentPattern
-							return new Notice('Not a valid value, using default')
+							return new Notice('Empty pattern value, using default')
 						}
 						this.plugin.settings.todoCommentPattern = value
 						await this.plugin.saveSettings()

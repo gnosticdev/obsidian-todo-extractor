@@ -33,19 +33,24 @@ export default class TodoExtractorPlugin extends Plugin {
 	public settings: TodoExtractorSettings
 	public normalizedFolderPath: string
 
-	private git: SimpleGit
+	public git: SimpleGit
 
 	async onload() {
 		await this.loadSettings()
 
 		this.addSettingTab(new TodoExtractorSettingTab(this.app, this))
 
-		console.log(styleText('bgBlue', 'Loaded Todo Extractor'), this.settings)
+		console.log(
+			styleText('bgBlue', 'Loaded Todo Extractor: settings'),
+			this.settings,
+		)
 
 		if (!this.settings.repoPath) {
-			new Notice('Please set the repository path in the plugin settings')
-		} else {
-			this.git = simpleGit({ baseDir: this.settings.repoPath })
+			return new Notice('Please set the repository path in the plugin settings')
+		}
+		this.git = simpleGit({ baseDir: this.settings.repoPath })
+		if (!this.git.checkIsRepo()) {
+			return new Notice('Please set the repository path in the plugin settings')
 		}
 
 		this.addCommand({
