@@ -1,7 +1,7 @@
 {
 	"author": "gnosticdev",
 	"authorUrl": "https://github.com/gnosticdev",
-	"description": "Extracts your todos from your codebase and adds them to a note.",
+	"description": "Extracts the TODO comments from your codebase and adds them to a note.",
 	"id": "todo-extractor",
 	"isDesktopOnly": true,
 	"minAppVersion": "0.15.0",

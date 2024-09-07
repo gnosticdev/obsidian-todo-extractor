@@ -9,15 +9,16 @@ jobs:
     build:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v3
-            - name: Use Node.js
-              uses: actions/setup-node@v3
+            - uses: actions/checkout@v4
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v1
               with:
-                  node-version: "18.x"
+                  bun-version: 1.1.26
             - name: Build plugin
               run: |
-                  npm install
-                  npm run build
+                  bun install --frozen-lockfile
+                  bun run build --production
             - name: Create release
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -26,4 +27,4 @@ jobs:
                   gh release create "$tag" \
                     --title="$tag" \
                     --draft \
-                    main.js manifest.json styles.css
+                    main.js manifest.json

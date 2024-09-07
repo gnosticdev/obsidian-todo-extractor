@@ -1,10 +1,11 @@
 import * as fs from 'node:fs'
-import * as path from 'node:path'
 import {
 	type App,
+	FuzzySuggestModal,
 	Notice,
 	PluginSettingTab,
 	Setting,
+	TFile,
 	normalizePath,
 } from 'obsidian'
 import simpleGit, { CheckRepoActions } from 'simple-git'
@@ -19,6 +20,7 @@ export interface TodoExtractorSettings {
 	fileExtensions: string[]
 	editorPrefix: string
 	todoCommentPattern: string
+	todoHeading: string
 }
 
 export const DEFAULT_SETTINGS = {
@@ -29,8 +31,8 @@ export const DEFAULT_SETTINGS = {
 	autoPullInterval: 0,
 	fileExtensions: ['ts', 'js', 'tsx', 'jsx', 'py'],
 	editorPrefix: 'vscode',
-	// double escape
 	todoCommentPattern: '//\\s*TODO:,#\\s*TODO:,{/\\*\\s*TODO:',
+	todoHeading: '## Extracted TODOs',
 } satisfies TodoExtractorSettings
 
 export class TodoExtractorSettingTab extends PluginSettingTab {
@@ -75,9 +77,6 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 						if (!fs.existsSync(this.plugin.settings.repoPath)) {
 							return new Notice('repo path does not exist.')
 						}
-						if (!path.isAbsolute(this.plugin.settings.repoPath)) {
-							return new Notice('Please enter an absolute folder path.')
-						}
 
 						this.plugin.settings.repoPath = normalizePath(
 							this.plugin.settings.repoPath,
@@ -90,6 +89,7 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 									return new Notice(`Error checking repository: ${err.message}`)
 								}
 								if (isRepo) {
+									button.setIcon('check')
 									return new Notice('Repository path is valid.')
 								}
 								new Notice(
@@ -108,7 +108,7 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 			.setDesc('Enter the branch name to checkout')
 			.addText((text) =>
 				text
-					.setPlaceholder('main')
+					.setPlaceholder(DEFAULT_SETTINGS.branchName)
 					.setValue(this.plugin.settings.branchName)
 					.onChange(async (value) => {
 						this.plugin.checkoutBranch(value)
@@ -118,17 +118,60 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 			)
 
 		new Setting(containerEl)
-			.setName('Default Note Name')
-			.setDesc('The name of the note where TODOs will be appended')
+			.setName('Default Note')
+			.setDesc('The note where TODOs will be appended')
 			.addText((text) =>
 				text
 					.setPlaceholder('Code TODOs')
 					.setValue(this.plugin.settings.todoNote)
+					.setDisabled(true),
+			)
+			.addButton((button) =>
+				button.setButtonText('Select').onClick(() => {
+					const modal = new FileSuggestModal(this.app, (file) => {
+						if (file instanceof TFile) {
+							console.log('selected file', file)
+							this.plugin.settings.todoNote = file.path
+							this.plugin.saveSettings()
+						}
+					})
+					modal.onChooseItem = (item) => {
+						console.log('selected item', item)
+						this.plugin.settings.todoNote = item.path
+						modal.inputEl.value = item.path
+						this.plugin.saveSettings()
+					}
+					modal.open()
+				}),
+			)
+
+		new Setting(containerEl)
+			.setName('TODO Heading')
+			.setDesc(
+				'Heading under which extracted TODOs will be placed. NOTE: if you use emojis/stickers, they must be present here! ex: ## :LiCalendarDays: Planned',
+			)
+			.addText((text) =>
+				text
+					.setPlaceholder('## Extracted TODOs')
+					.setValue(this.plugin.settings.todoHeading)
+
 					.onChange(async (value) => {
-						this.plugin.settings.todoNote = value
+						this.plugin.settings.todoHeading = value
 						await this.plugin.saveSettings()
 					}),
 			)
+			.addButton((button) => {
+				button.setButtonText('Check').onClick(async () => {
+					console.log(
+						'validating TODO heading',
+						this.plugin.settings.todoHeading,
+					)
+					await this.plugin.validateTodoHeading(
+						this.plugin.settings.todoNote || DEFAULT_SETTINGS.todoNote,
+					)
+					new Notice('TODO heading is valid')
+				})
+			})
 
 		new Setting(containerEl)
 			.setName('Default Note Tag')
@@ -211,5 +254,23 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings()
 					}),
 			)
+	}
+}
+
+class FileSuggestModal extends FuzzySuggestModal<TFile> {
+	constructor(app: App, onChooseItem: (file: TFile) => void) {
+		super(app)
+		this.onChooseItem = onChooseItem
+	}
+
+	getItems(): TFile[] {
+		return this.app.vault.getMarkdownFiles()
+	}
+
+	getItemText(file: TFile): string {
+		return file.path
+	}
+	onChooseItem(item: TFile, evt: MouseEvent | KeyboardEvent): void {
+		this.onChooseItem(item, evt)
 	}
 }

@@ -40,10 +40,11 @@ export default class TodoExtractorPlugin extends Plugin {
 
 		this.addSettingTab(new TodoExtractorSettingTab(this.app, this))
 
-		console.log(
-			styleText('bgBlue', 'Loaded Todo Extractor: settings'),
-			this.settings,
-		)
+		process.env.NODE_ENV === 'development' &&
+			console.log(
+				styleText('bgBlue', 'Loaded Todo Extractor: settings'),
+				this.settings,
+			)
 
 		if (!this.settings.repoPath) {
 			return new Notice('Please set the repository path in the plugin settings')
@@ -58,6 +59,10 @@ export default class TodoExtractorPlugin extends Plugin {
 			name: 'Extract TODOs',
 			callback: () => this.extractTodos(),
 		})
+
+		await this.validateTodoHeading(
+			this.settings.todoNote || DEFAULT_SETTINGS.todoNote,
+		)
 	}
 
 	async checkoutBranch(branchName: string) {
@@ -92,9 +97,11 @@ export default class TodoExtractorPlugin extends Plugin {
 	public async grepTodos() {
 		// gets the todos for ts, js, tsx, jsx files
 		const patterns = this.settings.todoCommentPattern.split(',')
-		let query = grepQueryBuilder(patterns[0]!)
-		for (let i = 1; i < patterns.length; i++) {
-			query = query.param(patterns[i]!)
+		const mainPattern = patterns.shift() ?? DEFAULT_SETTINGS.todoCommentPattern
+		let query = grepQueryBuilder(mainPattern)
+		// grepQueryBuilder uses the first pattern as the query and the rest as parameters
+		for (const pattern of patterns) {
+			query = query.param(pattern)
 		}
 		console.log('Grep query:', query)
 		const matches = await this.git.grep(query)
@@ -104,7 +111,7 @@ export default class TodoExtractorPlugin extends Plugin {
 			console.log(styleText('bgGreen', 'file'), _path)
 			console.log(matches.results[_path])
 			const grepMatch = matches.results[_path]
-			for (const result of grepMatch) {
+			for (const result of grepMatch ?? []) {
 				results.push({
 					line: result.line,
 					text: result.preview.trim(),
@@ -120,10 +127,8 @@ export default class TodoExtractorPlugin extends Plugin {
 	}
 
 	async saveSettings() {
-		console.log('Saving todo extractor settings:', this.settings)
 		for (const [key, value] of Object.entries(this.settings)) {
 			if (!value) {
-				console.log('Setting default value for:', key)
 				Object.assign(this.settings, {
 					[key]: DEFAULT_SETTINGS[key as keyof TodoExtractorSettings],
 				})
@@ -148,7 +153,7 @@ export default class TodoExtractorPlugin extends Plugin {
 			// only store the TODO text not the checkbox
 			const matched = line.trim().match(TODO_REGEX_MD)
 			if (matched) {
-				existingTodos.add(matched[1].trim())
+				existingTodos.add(matched[1]!.trim())
 			}
 		}
 
@@ -159,23 +164,27 @@ export default class TodoExtractorPlugin extends Plugin {
 
 	async writeTodosToNote(todos: TodoResult[]) {
 		const existingTodos = await this.loadExistingTodos()
-		const noteName = `${this.settings.todoNote || 'Code TODOs'}.md`
-		console.log(`Attempting to write TODOs to note: ${noteName}`)
+		const notePath = this.settings.todoNote || 'Code TODOs.md'
+		console.log(`Attempting to write TODOs to note: ${notePath}`)
 
 		try {
-			let todoNote = this.app.vault.getAbstractFileByPath(noteName)
+			let todoNote = this.app.vault.getAbstractFileByPath(notePath)
 			console.log('Existing note:', todoNote)
 
 			if (!(todoNote instanceof TFile)) {
 				console.log('Note does not exist, creating new note')
 				todoNote = await this.app.vault.create(
-					noteName,
-					`# ${this.settings.todoNote}\n\n`,
+					notePath,
+					`# ${path.basename(notePath, '.md')}\n\n${this.settings.todoHeading}\n\n`,
 				)
 				console.log('New note created:', todoNote)
 			}
 
 			const existingContent = await this.app.vault.read(todoNote as TFile)
+
+			// Check if the heading already exists in the note
+			const headingRegex = new RegExp(`^${this.settings.todoHeading}$`, 'm')
+			const headingExists = headingRegex.test(existingContent)
 
 			const newTodos = todos
 				.map((todo) => {
@@ -203,12 +212,29 @@ export default class TodoExtractorPlugin extends Plugin {
 			const tagLine = this.settings.noteTag
 				? `\n\n#${this.settings.noteTag}`
 				: ''
-			const newContent = `${existingContent}\n${newTodos}${tagLine}`
+
+			// If the heading exists, insert new TODOs after it
+			let newContent = ''
+
+			if (headingExists) {
+				// If the heading exists, insert new TODOs after it
+				newContent = existingContent.replace(
+					headingRegex,
+					`${this.settings.todoHeading}\n\n${newTodos}`,
+				)
+			} else {
+				if (this.settings.todoHeading !== DEFAULT_SETTINGS.todoHeading) {
+					new Notice(
+						'Heading not found, appending TODOs to the end of the note',
+					)
+				}
+				newContent = `${existingContent}\n\n${this.settings.todoHeading}\n\n${newTodos}${tagLine}`
+			}
 
 			console.log('New content length:', newContent.length)
 			await this.app.vault.modify(todoNote as TFile, newContent)
 			console.log(
-				`Updated ${newTodos.split('\n').length} new TODOs in ${noteName}`,
+				`Updated ${newTodos.split('\n').length} new TODOs in ${notePath}`,
 			)
 
 			new Notice(
@@ -218,5 +244,22 @@ export default class TodoExtractorPlugin extends Plugin {
 			console.error('Error in writeTodosToNote:', error)
 			new Notice(`Error writing TODOs to note: ${error.message}`)
 		}
+	}
+
+	// Add this new function
+	async validateTodoHeading(notePath: string) {
+		const todoNote = this.app.vault.getFileByPath(notePath)
+		if (!todoNote) {
+			console.log('validateTodoHeading: todoNote does not exist')
+			return false
+		}
+
+		const content = await this.app.vault.read(todoNote as TFile)
+		console.log('validateTodoHeading: content', content)
+		// validate content
+		const headingRegex = new RegExp(`^${this.settings.todoHeading}$`, 'm')
+		const headingExists = headingRegex.test(content)
+		console.log('validateTodoHeading: headingExists', headingExists)
+		return headingExists
 	}
 }

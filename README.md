@@ -1,6 +1,6 @@
 # Obsidian TODO Extractor
 
-Sync your codebase TODOs with Obsidian.
+Sync your codebase TODO comments with Obsidian.
 
 ## Installation
 
@@ -21,27 +21,32 @@ This plugin uses [simple-git](https://github.com/steveukx/git-js) to scan your l
 
 ## Limitations
 
-Only works with the following comment styles:
+The following comment styles are supported:
 
 ```ts
-// TODO: some task
-/* TODO: some other task */
-{/* TODO: for JSX */}
+// TODO: single line comments
+/* TODO: multi-line comments */
+{/* TODO: JSX comments */}
 # TODO: for Python
 ```
 
 ## Features
 
+- [x] uses `git grep` to find TODOs in the codebase. Can define your own patterns.
 - [x] Add a link back to the code file and line number (opens via editor prefix)
 - [x] Scan local repo for TODOs
+- [ ] Scan remote url's for TODOs (will only work with public repos)
 - [x] Create/Update markdown file in Obsidian with TODOs
 - [x] Deduplicate existing TODOs in Obsidian
 - [ ] Remove TODOs that are no longer in the codebase.
-- [ ] Add support for other tags like FIXME, NOTE, etc.
+- [x] Add support for other tags like FIXME, NOTE, etc. (using git grep regex)
+- [ ] add support for multiple repositories
 - [x] Add support for custom tags
-- [ ] Add support for custom file paths
-- [ ] Add support for custom regex patterns
-- [ ] Add support for other comment styles
+- [x] Add support for custom file paths
+- [x] Add support for custom git grep patterns (double escaped regex)
+  - (default: `//\\s*TODO:,#\\s*TODO:,{/\\*\\s*TODO:`)
+- [ ] Add support for more comment styles
+- [x] Add support for custom TODO headings
 
 ## Settings
 
@@ -52,6 +57,7 @@ Only works with the following comment styles:
 - autoPullInterval: number (in minutes, 0 means disabled)
 - fileExtensions: string[] (file types to scan for TODOs)
 - editorPrefix: string (prefix for editor links, e.g., "vscode://")
+- todoHeading: string (heading for the TODO note)
 - todoRegex: string (regex pattern to match TODOs)
 
 ## Contributing

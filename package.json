@@ -4,9 +4,8 @@
 	"description": "Todo extractor plugin for Obsidian gathers your todos from your codebase and adds them to a note.",
 	"main": "main.js",
 	"scripts": {
-		"dev": "tsc && bun run lint && bun esbuild.config.mjs",
+		"dev": "tsc && bun run lint && NODE_ENV=development bun esbuild.config.mjs",
 		"build": "tsc && bun run lint && bun esbuild.config.mjs production",
-		"sync": "./rsync.sh",
 		"version": "bun version-bump.mjs && git add manifest.json versions.json",
 		"lint": "biome check . --write --unsafe"
 	},
@@ -15,10 +14,12 @@
 	"license": "MIT",
 	"devDependencies": {
 		"@biomejs/biome": "^1.8.3",
+		"@types/bun": "^1.1.8",
 		"builtin-modules": "4.0.0",
 		"esbuild": "0.23.0",
 		"obsidian": "^1.6.6",
-		"tslib": "2.6.3"
+		"tslib": "2.6.3",
+		"typescript": "^5.5.4"
 	},
 	"dependencies": {
 		"simple-git": "^3.25.0"
