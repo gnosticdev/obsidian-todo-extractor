@@ -30,6 +30,15 @@ The following comment styles are supported:
 # TODO: for Python
 ```
 
+## Screenshots
+
+![TODO comment in codebase](./screenshots/extracted-todo-in-codebase.png)
+![Extracted TODO in Obsidian](./screenshots/extracted-todo-in-obsidian.png)
+
+## Commands
+
+- Extract TODOs: Extracts all TODOs from your codebase into an Obsidian note
+
 ## Features
 
 - [x] uses `git grep` to find TODOs in the codebase. Can define your own patterns.
