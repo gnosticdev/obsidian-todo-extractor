@@ -1,5 +1,5 @@
 import { TDNotice } from '@/notice'
-import { isDev, styleText } from '@/utils'
+import { isDev } from '@/utils'
 import { SuggestModal } from 'obsidian'
 import { type BranchSummary, simpleGit } from 'simple-git'
 import type TodoExtractorPlugin from './main'
@@ -39,7 +39,7 @@ export class BranchSuggestModal extends SuggestModal<string> {
 				branch.includes(query),
 			)
 		} catch (error) {
-			console.log(styleText('bgRed', 'Error getting branches:'), error)
+			console.error('TODO Extractor: Error getting branches:', error)
 			new TDNotice(`Error getting branches: ${error}`)
 			return []
 		}

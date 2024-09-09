@@ -44,11 +44,7 @@ export default class TodoExtractorPlugin
 
 		this.addSettingTab(new TodoExtractorSettingTab(this.app, this))
 
-		isDev &&
-			console.log(
-				styleText('bgBlue', 'Loaded Todo Extractor: settings'),
-				this.settings,
-			)
+		isDev && console.table(this.settings)
 
 		// Initialize git
 		try {
@@ -275,7 +271,7 @@ export default class TodoExtractorPlugin
 			// only store the TODO text not the checkbox
 			const matched = line.trim().match(TODO_REGEX_MD)
 			if (matched) {
-				console.log('matched', matched)
+				isDev && console.log('matched', matched)
 				existingTodos.add(matched[1]!.trim())
 			}
 		}
@@ -288,7 +284,7 @@ export default class TodoExtractorPlugin
 				.replace(/^- \[[ xX]\] /, '')
 			existingTodos.add(text)
 		}
-		console.log('todoNoteCache', [...existingTodos])
+		isDev && console.log('todoNoteCache', [...existingTodos])
 
 		return existingTodos
 	}
@@ -312,7 +308,7 @@ export default class TodoExtractorPlugin
 
 			const existingTodos = await this.loadExistingTodos()
 			const notePath = this.settings.todoNote || 'Code TODOs.md'
-			console.log(`Attempting to write TODOs to note: ${notePath}`)
+			isDev && console.log(`Attempting to write TODOs to note: ${notePath}`)
 
 			const newTodos = todos
 				.map((todo) => {
@@ -368,17 +364,17 @@ export default class TodoExtractorPlugin
 				content = `${content.slice(0, headingEnd)}\n\n${newTodos}${tagLine}${headingEndContent}`
 			}
 
-			console.log('New content length:', content.length)
 			await this.app.vault.modify(todoNote as TFile, content)
-			console.log(
-				`Added ${newTodos.split('\n').length} new TODOs in ${notePath}`,
-			)
+			isDev &&
+				console.log(
+					`Added ${newTodos.split('\n\n').length} new TODOs in ${notePath}`,
+				)
 
 			new TDNotice(
 				`Added ${newTodos.split('\n').length} new TODOs to ${this.settings.todoNote}`,
 			)
 		} catch (error) {
-			console.error('Error in writeTodosToNote:', error)
+			console.error('TODO Extractor: Error writing TODOs to note:', error)
 			new TDNotice(`Error writing TODOs to note: ${error.message}`)
 		}
 	}
