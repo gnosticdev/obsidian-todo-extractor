@@ -19,6 +19,9 @@ import {
 	styleText,
 } from './utils'
 
+/**
+ * Similar to the grep result, but the preview text is trimmed of whitespace characters
+ */
 type TodoResult = { previewText: string; filePath: string; lineNumber: number }
 
 export default class TodoExtractorPlugin
@@ -233,7 +236,6 @@ export default class TodoExtractorPlugin
 		const matches = await this.git.grep(query)
 
 		const results: TodoResult[] = []
-		isDev && console.log('matches', matches)
 		for (const matchPath of matches.paths) {
 			const grepMatch = matches.results[matchPath]
 			for (const result of grepMatch ?? []) {
@@ -244,6 +246,7 @@ export default class TodoExtractorPlugin
 				})
 			}
 		}
+		isDev && console.log('grep results', results)
 		return results
 	}
 
@@ -266,18 +269,26 @@ export default class TodoExtractorPlugin
 			return new Set<string>()
 		}
 
-		const content = await this.app.vault.cachedRead(todoNote)
+		const content = await this.app.vault.read(todoNote)
 
-		const lines = content.split('\n')
-		for (const line of lines) {
+		for (const line of content.split('\n')) {
 			// only store the TODO text not the checkbox
 			const matched = line.trim().match(TODO_REGEX_MD)
 			if (matched) {
+				console.log('matched', matched)
 				existingTodos.add(matched[1]!.trim())
 			}
 		}
 
-		console.log('loadExistingTodos', [...existingTodos])
+		const todoNoteCache = this.app.metadataCache.getFileCache(todoNote)
+		for (const item of todoNoteCache?.listItems ?? []) {
+			// get the text of the list item by reading the start - end of the item
+			const text = content
+				.slice(item.position.start.offset, item.position.end.offset)
+				.replace(/^- \[[ xX]\] /, '')
+			existingTodos.add(text)
+		}
+		console.log('todoNoteCache', [...existingTodos])
 
 		return existingTodos
 	}
@@ -286,33 +297,22 @@ export default class TodoExtractorPlugin
 	 * Write the todos to the todo note, creating it if it doesn't exist
 	 */
 	private async writeTodosToNote(todos: TodoResult[]) {
-		let todoNote = this.app.vault.getFileByPath(this.settings.todoNote)
+		let todoNote = this.loadCurrentTodoNote()
 		if (!todoNote) {
 			new TDNotice('Todo note does not exist')
 			// if the todoNote is empty, then the todoHeading will be empty
 			todoNote = await this.app.vault.create(
 				DEFAULT_SETTINGS.todoNote,
-				`# ${DEFAULT_SETTINGS.todoHeading}`,
+				`# ${DEFAULT_SETTINGS.todoHeading}\n\n`,
 			)
 		}
-
-		const existingTodos = await this.loadExistingTodos()
-		const notePath = this.settings.todoNote || 'Code TODOs.md'
-		console.log(`Attempting to write TODOs to note: ${notePath}`)
 
 		try {
 			isDev && console.log('Existing note:', todoNote)
 
-			if (!todoNote) {
-				new TDNotice(`Note not found, creating new note: ${notePath}`)
-				todoNote = await this.app.vault.create(
-					notePath,
-					`# ${path.basename(notePath, '.md')}\n\n${this.settings.todoHeading}\n\n`,
-				)
-				console.log('New note created:', todoNote)
-			}
-
-			const existingContent = await this.app.vault.read(todoNote as TFile)
+			const existingTodos = await this.loadExistingTodos()
+			const notePath = this.settings.todoNote || 'Code TODOs.md'
+			console.log(`Attempting to write TODOs to note: ${notePath}`)
 
 			const newTodos = todos
 				.map((todo) => {
@@ -321,14 +321,19 @@ export default class TodoExtractorPlugin
 						todo.filePath,
 					)
 					const editorLink = `${this.settings.editorPrefix}://file/${absolutePath}:${todo.lineNumber}`
-					const matcher = todo.previewText
-						.replace(/\/\/|\/\*|\*\/|\{|\}|\#/g, '')
+
+					/**
+					 * Remove any comment characters from the todo text
+					 * This is to prevent duplicate todos when the same TODO is found in multiple files
+					 */
+					const cleanedPreviewText = todo.previewText
+						.replace(/\/\/|\/\*|\*\/|\{|\}|\#/gm, '')
 						.trim()
 
-					isDev && console.log('matcher:', matcher)
+					isDev && console.log('matcher:', cleanedPreviewText)
 					return {
-						matcher,
-						line: `- [ ] ${matcher}\n[${todo.filePath}:${todo.lineNumber}](${editorLink})`,
+						matcher: cleanedPreviewText,
+						line: `- [ ] ${cleanedPreviewText} [${todo.filePath}:${todo.lineNumber}](${editorLink})`,
 					}
 				})
 				.filter((todoLine) => !existingTodos.has(todoLine.matcher))
@@ -341,35 +346,32 @@ export default class TodoExtractorPlugin
 			}
 
 			const tagLine = this.settings.noteTag
-				? `\n\n#${this.settings.noteTag}`
+				? `\n#${this.settings.noteTag}\n`
 				: ''
 
 			// Check if the heading already exists in the note
 			const fileCache = this.app.metadataCache.getFileCache(todoNote)
 			const headingsCache = fileCache?.headings ?? []
-			const headingExists = headingsCache.some(
+			const todoHeadingIndex = headingsCache.findIndex(
 				(heading) => heading.heading === this.settings.todoHeading,
 			)
 
-			let newContent = ''
+			let content = await this.app.vault.read(todoNote as TFile)
 
-			const listItems = this.app.metadataCache.getFileCache(todoNote)?.listItems
-			isDev && console.log('listItems', listItems)
-
-			if (!headingExists) {
-				newContent = `${existingContent}\n\n${this.settings.todoHeading}\n\n${newTodos}${tagLine}`
+			// if the heading doesn't exist, append it to the note
+			if (todoHeadingIndex === -1) {
+				content = `${content}\n\n${this.settings.todoHeading}\n\n${newTodos}${tagLine}`
 			} else {
-				// If the heading exists, insert new TODOs after it
-				newContent = existingContent.replace(
-					`${this.settings.todoHeading}\n\n`,
-					`${this.settings.todoHeading}\n\n${newTodos}${tagLine}`,
-				)
+				// append the new todos to the note after the group with this heading
+				const headingEnd = headingsCache[todoHeadingIndex]!.position.end.offset
+				const headingEndContent = content.slice(headingEnd)
+				content = `${content.slice(0, headingEnd)}\n\n${newTodos}${tagLine}${headingEndContent}`
 			}
 
-			console.log('New content length:', newContent.length)
-			await this.app.vault.modify(todoNote as TFile, newContent)
+			console.log('New content length:', content.length)
+			await this.app.vault.modify(todoNote as TFile, content)
 			console.log(
-				`Updated ${newTodos.split('\n').length} new TODOs in ${notePath}`,
+				`Added ${newTodos.split('\n').length} new TODOs in ${notePath}`,
 			)
 
 			new TDNotice(
