@@ -28,15 +28,15 @@ export default class TodoExtractorPlugin
 	public settings: TodoExtractorSettings
 	public git: SimpleGit | null
 
-	public async loadSettings() {
+	public async loadSettings(): Promise<void> {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData())
 	}
 
-	public async saveSettings() {
+	public async saveSettings(): Promise<void> {
 		await this.saveData(this.settings)
 	}
 
-	async onload() {
+	async onload(): Promise<void> {
 		await this.loadSettings()
 
 		this.addSettingTab(new TodoExtractorSettingTab(this.app, this))
@@ -115,6 +115,11 @@ export default class TodoExtractorPlugin
 		})
 	}
 
+	/*
+	 * Get the current todo note from settings, and convert it to a TFile
+	 *
+	 * if not set, prompts user with the FileSuggestModal
+	 */
 	public loadCurrentTodoNote(): TFile | null {
 		return this.app.vault.getFileByPath(this.settings.todoNote)
 	}
@@ -122,7 +127,7 @@ export default class TodoExtractorPlugin
 	/**
 	 * Open a modal to select the todo note
 	 */
-	async selectTodoNote(): Promise<void> {
+	public async selectTodoNote(): Promise<void> {
 		const modal = new FileSuggestModal(
 			this,
 			async (file: TFile) => {
@@ -150,7 +155,7 @@ export default class TodoExtractorPlugin
 	/**
 	 * Open a modal to select the todo heading
 	 */
-	async selectTodoHeading() {
+	public async selectTodoHeading(): Promise<void> {
 		const modal = new TodoHeadingModal(this, async (item) => {
 			this.settings.todoHeading = item
 			await this.saveSettings()
@@ -161,7 +166,7 @@ export default class TodoExtractorPlugin
 	/**
 	 * Only invoke this when the user has clicked the validate button, or has selected a command that requires a valid repo path
 	 */
-	async validateRepoPath() {
+	public async validateRepoPath() {
 		if (!this.settings.repoPath) {
 			return createErrorResponse('No repo path set')
 		}
@@ -193,7 +198,7 @@ export default class TodoExtractorPlugin
 	/**
 	 * Extract TODOs from the codebase and write to the todo note
 	 */
-	async extractTodos() {
+	public async extractTodos(): Promise<void> {
 		try {
 			const todos = await this.grepTodos()
 			isDev && console.log(`Found ${todos.length} TODOs`)
@@ -209,9 +214,9 @@ export default class TodoExtractorPlugin
 	}
 
 	/**
-	 * Use git grep to search for TODOs in the Repository
+	 * Use git grep to scan a repo for all TODO comments
 	 */
-	private async grepTodos() {
+	private async grepTodos(): Promise<TodoResult[]> {
 		// gets the todos for ts, js, tsx, jsx files
 		if (!this.git) {
 			new TDNotice('Please set the repository path in the plugin settings')
@@ -242,6 +247,11 @@ export default class TodoExtractorPlugin
 		return results
 	}
 
+	/**
+	 * Load existing todos from the todo note, creates the note if it doesn't exist.
+	 *
+	 * Only returns the todo text, not the checkbox or the link
+	 */
 	private async loadExistingTodos(): Promise<Set<string>> {
 		/**
 		 * Regex to match TODOs in Markdown files
@@ -256,9 +266,7 @@ export default class TodoExtractorPlugin
 			return new Set<string>()
 		}
 
-		const content = await this.app.vault.process(todoNote, (text) => {
-			return text
-		})
+		const content = await this.app.vault.cachedRead(todoNote)
 
 		const lines = content.split('\n')
 		for (const line of lines) {
@@ -274,6 +282,9 @@ export default class TodoExtractorPlugin
 		return existingTodos
 	}
 
+	/**
+	 * Write the todos to the todo note, creating it if it doesn't exist
+	 */
 	private async writeTodosToNote(todos: TodoResult[]) {
 		let todoNote = this.app.vault.getFileByPath(this.settings.todoNote)
 		if (!todoNote) {
