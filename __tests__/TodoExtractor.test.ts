@@ -1,7 +1,7 @@
-import type { TodoExtractorSettings } from '@/settings'
-import type { ITodoExtractorPlugin } from '@/types'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import * as path from 'node:path'
+import type { TodoExtractorSettings } from '@/settings'
+import type { ITodoExtractorPlugin } from '@/types'
 import type {
 	App,
 	FileManager,

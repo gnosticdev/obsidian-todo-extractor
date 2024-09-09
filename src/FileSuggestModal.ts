@@ -31,7 +31,7 @@ export class FileSuggestModal extends FuzzySuggestModal<TFile> {
 	): void {
 		isDev && console.log('onChooseSuggestion', item)
 		const fileSuggestInput = document.getElementById(
-			'file-suggest-input',
+			'todo-note-input',
 		) as HTMLInputElement
 		if (fileSuggestInput) {
 			fileSuggestInput.value = item.item.path

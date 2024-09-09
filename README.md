@@ -32,7 +32,12 @@ The following comment styles are supported:
 
 ## Screenshots
 
-![TODO comment in codebase](./screenshots/extracted-todo-in-codebase.png)
+### TODO Comment in codebase
+
+![TODO comment in codebase](./screenshots/todo-in-codebase.png)
+
+### Extracted TODO in Obsidian
+
 ![Extracted TODO in Obsidian](./screenshots/extracted-todo-in-obsidian.png)
 
 ## Commands
