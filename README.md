@@ -44,7 +44,9 @@ The following comment styles are supported:
 - [x] uses `git grep` to find TODOs in the codebase. Can define your own patterns.
 - [x] Add a link back to the code file and line number (opens via editor prefix)
 - [x] Scan local repo for TODOs
-- [ ] Scan remote url's for TODOs (will only work with public repos)
+- [ ] Scan remote url's for TODOs
+  - [ ] add support for public repos
+  - [ ] add support for private repos
 - [x] Create/Update markdown file in Obsidian with TODOs
 - [x] Deduplicate existing TODOs in Obsidian
 - [ ] Remove TODOs that are no longer in the codebase.

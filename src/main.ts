@@ -74,7 +74,7 @@ export default class TodoExtractorPlugin
 			callback: () =>
 				this.validateRepoPath().then((isValid) => {
 					if (isValid) {
-						this.extractTodos()
+						this.runExtractTodosCommand()
 					} else {
 						new TDNotice(
 							'Please set the repository path in the plugin settings',
@@ -173,7 +173,6 @@ export default class TodoExtractorPlugin
 			this.settings.repoPath.includes('https://') ||
 			this.settings.repoPath.includes('http://')
 		) {
-			new TDNotice('URLs are not currently supported.')
 			return createErrorResponse('URLs are not currently supported.')
 		}
 		if (!fs.existsSync(this.settings.repoPath)) {
@@ -197,19 +196,85 @@ export default class TodoExtractorPlugin
 	/**
 	 * Extract TODOs from the codebase and write to the todo note
 	 */
-	public async extractTodos(): Promise<void> {
+	public async runExtractTodosCommand(): Promise<void> {
 		try {
 			const todos = await this.grepTodos()
 			isDev && console.log(`Found ${todos.length} TODOs`)
-			if (todos.length > 0) {
-				await this.writeTodosToNote(todos)
-			} else {
+			if (todos.length === 0) {
 				new TDNotice('No TODOs found in the repository')
+				return
 			}
+			const todoNote = this.loadCurrentTodoNote()
+			if (!todoNote) {
+				new TDNotice('No todo note found: please select a note')
+				await this.selectTodoNote()
+				return
+			}
+			const existingTodos = await this.loadExistingTodos()
+			const newTodos = this.formatNewTodos(todos, existingTodos)
+			if (newTodos.length === 0) {
+				new TDNotice('No new TODOs found')
+				return
+			}
+			await this.appendNewTodosToNote(todoNote, newTodos)
+			new TDNotice(
+				`Added ${newTodos.length} new TODOs to ${this.settings.todoNote}`,
+			)
 		} catch (error) {
 			console.error(error)
 			new TDNotice(`Error extracting TODOs: ${error.message}`)
 		}
+	}
+
+	private formatNewTodos(
+		todos: TodoResult[],
+		existingTodos: Set<string>,
+	): string[] {
+		return todos
+			.map((todo) => {
+				const absolutePath = path.resolve(
+					this.settings.repoPath || '',
+					todo.filePath,
+				)
+				const editorLink = `${this.settings.editorPrefix}://file/${absolutePath}:${todo.lineNumber}`
+				const cleanedPreviewText = todo.previewText
+					.replace(/\/\/|\/\*|\*\/|\{|\}|\#/gm, '')
+					.trim()
+
+				return {
+					matcher: cleanedPreviewText,
+					line: `- [ ] ${cleanedPreviewText} [${todo.filePath}:${todo.lineNumber}](${editorLink})`,
+				}
+			})
+			.filter((todoLine) => !existingTodos.has(todoLine.matcher))
+			.map((todoLine) => todoLine.line)
+	}
+
+	private async appendNewTodosToNote(
+		todoNote: TFile,
+		newTodos: string[],
+	): Promise<void> {
+		const tagLine = this.settings.noteTag ? `\n#${this.settings.noteTag}` : ''
+		const fileCache = this.app.metadataCache.getFileCache(todoNote)
+		const headingsCache = fileCache?.headings ?? []
+		const todoHeadingIndex = headingsCache.findIndex(
+			(heading) => heading.heading === this.settings.todoHeading,
+		)
+
+		let content = await this.app.vault.read(todoNote)
+
+		if (todoHeadingIndex === -1) {
+			// If the heading doesn't exist, add it with the new todos
+			content = `${content.trim()}\n\n## ${this.settings.todoHeading}\n\n${newTodos.join('\n')}${tagLine}`
+		} else {
+			// If the heading exists, insert the new todos after it
+			const headingEnd = headingsCache[todoHeadingIndex]!.position.end.offset
+			const beforeHeading = content.slice(0, headingEnd).trim()
+			const afterHeading = content.slice(headingEnd).trim()
+			content = `${beforeHeading}\n${newTodos.join('\n')}${tagLine}\n${afterHeading}`
+		}
+
+		await this.app.vault.modify(todoNote, `${content.trim()}\n`)
 	}
 
 	/**
@@ -287,95 +352,5 @@ export default class TodoExtractorPlugin
 		isDev && console.log('todoNoteCache', [...existingTodos])
 
 		return existingTodos
-	}
-
-	/**
-	 * Write the todos to the todo note, creating it if it doesn't exist
-	 */
-	private async writeTodosToNote(todos: TodoResult[]) {
-		let todoNote = this.loadCurrentTodoNote()
-		if (!todoNote) {
-			new TDNotice('Todo note does not exist')
-			// if the todoNote is empty, then the todoHeading will be empty
-			todoNote = await this.app.vault.create(
-				DEFAULT_SETTINGS.todoNote,
-				`# ${DEFAULT_SETTINGS.todoHeading}\n\n`,
-			)
-		}
-
-		try {
-			isDev && console.log('Existing note:', todoNote)
-
-			const existingTodos = await this.loadExistingTodos()
-			const notePath = this.settings.todoNote || 'Code TODOs.md'
-			isDev && console.log(`Attempting to write TODOs to note: ${notePath}`)
-
-			const newTodos = todos
-				.map((todo) => {
-					const absolutePath = path.resolve(
-						this.settings.repoPath || '',
-						todo.filePath,
-					)
-					const editorLink = `${this.settings.editorPrefix}://file/${absolutePath}:${todo.lineNumber}`
-
-					/**
-					 * Remove any comment characters from the todo text
-					 * This is to prevent duplicate todos when the same TODO is found in multiple files
-					 */
-					const cleanedPreviewText = todo.previewText
-						.replace(/\/\/|\/\*|\*\/|\{|\}|\#/gm, '')
-						.trim()
-
-					isDev && console.log('matcher:', cleanedPreviewText)
-					return {
-						matcher: cleanedPreviewText,
-						line: `- [ ] ${cleanedPreviewText} [${todo.filePath}:${todo.lineNumber}](${editorLink})`,
-					}
-				})
-				.filter((todoLine) => !existingTodos.has(todoLine.matcher))
-				.map((todoLine) => todoLine.line)
-				.join('\n')
-
-			if (newTodos.length === 0) {
-				new TDNotice('No new TODOs found')
-				return
-			}
-
-			const tagLine = this.settings.noteTag
-				? `\n#${this.settings.noteTag}\n`
-				: ''
-
-			// Check if the heading already exists in the note
-			const fileCache = this.app.metadataCache.getFileCache(todoNote)
-			const headingsCache = fileCache?.headings ?? []
-			const todoHeadingIndex = headingsCache.findIndex(
-				(heading) => heading.heading === this.settings.todoHeading,
-			)
-
-			let content = await this.app.vault.read(todoNote as TFile)
-
-			// if the heading doesn't exist, append it to the note
-			if (todoHeadingIndex === -1) {
-				content = `${content}\n\n${this.settings.todoHeading}\n\n${newTodos}${tagLine}`
-			} else {
-				// append the new todos to the note after the group with this heading
-				const headingEnd = headingsCache[todoHeadingIndex]!.position.end.offset
-				const headingEndContent = content.slice(headingEnd)
-				content = `${content.slice(0, headingEnd)}\n\n${newTodos}${tagLine}${headingEndContent}`
-			}
-
-			await this.app.vault.modify(todoNote as TFile, content)
-			isDev &&
-				console.log(
-					`Added ${newTodos.split('\n\n').length} new TODOs in ${notePath}`,
-				)
-
-			new TDNotice(
-				`Added ${newTodos.split('\n').length} new TODOs to ${this.settings.todoNote}`,
-			)
-		} catch (error) {
-			console.error('TODO Extractor: Error writing TODOs to note:', error)
-			new TDNotice(`Error writing TODOs to note: ${error.message}`)
-		}
 	}
 }

@@ -6,11 +6,10 @@ export class FileSuggestModal extends FuzzySuggestModal<TFile> {
 	constructor(
 		private plugin: TodoExtractorPlugin,
 		public onChooseItem: (file: TFile) => void,
-		title: string,
+		placeholder: string,
 	) {
 		super(plugin.app)
-		this.setTitle(title)
-		this.setPlaceholder('Select a file')
+		this.setPlaceholder(placeholder)
 		this.setInstructions([
 			{ command: '↑↓', purpose: 'to navigate' },
 			{ command: '↵', purpose: 'to select' },

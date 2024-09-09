@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import * as path from 'node:path'
 import type { TodoExtractorSettings } from '@/settings'
 import type { ITodoExtractorPlugin } from '@/types'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import * as path from 'node:path'
 import type {
 	App,
 	FileManager,
@@ -37,7 +37,7 @@ class MockPlugin implements ITodoExtractorPlugin {
 	onunload(): void {
 		return
 	}
-	async extractTodos(): Promise<void> {
+	async runExtractTodosCommand(): Promise<void> {
 		const file = await Bun.file(
 			path.join(process.cwd(), 'test-repo/test-ts-file.ts'),
 		).text()
@@ -83,7 +83,7 @@ describe('TodoExtractorPlugin', () => {
 	})
 
 	test('should extract TODOs from TypeScript files', async () => {
-		await plugin.extractTodos()
+		await plugin.runExtractTodosCommand()
 
 		const todoNote = mockApp.vault.getFileByPath('Code TODOs.md') as TFile
 		const content = await mockApp.vault.read(todoNote)
@@ -93,7 +93,7 @@ describe('TodoExtractorPlugin', () => {
 	})
 
 	test('should extract TODOs from TSX files', async () => {
-		await plugin.extractTodos()
+		await plugin.runExtractTodosCommand()
 
 		const todoNote = mockApp.vault.getFileByPath('Code TODOs.md') as TFile
 		const content = await mockApp.vault.read(todoNote)
@@ -102,7 +102,7 @@ describe('TodoExtractorPlugin', () => {
 	})
 
 	test('should extract TODOs from Python files', async () => {
-		await plugin.extractTodos()
+		await plugin.runExtractTodosCommand()
 
 		const todoNote = mockApp.vault.getFileByPath('Code TODOs.md') as TFile
 		const content = await mockApp.vault.read(todoNote)
