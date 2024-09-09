@@ -1,0 +1,8 @@
+/* This file is used to style the plugin.
+ * It is not used in the build process.
+ */
+
+/* We will create a hash for each todo, append to the end of the TODO heading, then hide from editor with this */
+.hidden {
+	display: none;
+}

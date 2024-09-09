@@ -1,21 +1,13 @@
-import * as fs from 'node:fs'
-import {
-	type App,
-	FuzzySuggestModal,
-	Notice,
-	PluginSettingTab,
-	Setting,
-	TFile,
-	normalizePath,
-} from 'obsidian'
-import simpleGit, { CheckRepoActions } from 'simple-git'
-import type TodoExtractorPlugin from 'src/main'
+import { BranchSuggestModal } from '@/BranchSuggestModal'
+import { TDNotice } from '@/notice'
+import { type App, PluginSettingTab, Setting } from 'obsidian'
+import type TodoExtractorPlugin from './main'
 
 export interface TodoExtractorSettings {
-	repoPath: string
-	branchName: string
+	repoPath?: string
+	branchName?: string
 	todoNote: string
-	noteTag: string
+	noteTag?: string
 	autoPullInterval: number // in minutes, 0 means disabled
 	fileExtensions: string[]
 	editorPrefix: string
@@ -25,14 +17,14 @@ export interface TodoExtractorSettings {
 
 export const DEFAULT_SETTINGS = {
 	repoPath: '',
-	branchName: 'main',
+	branchName: '',
 	todoNote: 'Code TODOs',
 	noteTag: '',
 	autoPullInterval: 0,
 	fileExtensions: ['ts', 'js', 'tsx', 'jsx', 'py'],
 	editorPrefix: 'vscode',
 	todoCommentPattern: '//\\s*TODO:,#\\s*TODO:,{/\\*\\s*TODO:',
-	todoHeading: '## Extracted TODOs',
+	todoHeading: 'Extracted TODOs',
 } satisfies TodoExtractorSettings
 
 export class TodoExtractorSettingTab extends PluginSettingTab {
@@ -51,53 +43,38 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Repository Path')
 			.setDesc('Enter the path to your code repository')
-			.addText((text) =>
-				text
+			.addText((textElement) => {
+				const inputEl = textElement.inputEl
+				inputEl.id = 'repo-path-input'
+
+				textElement
 					.setPlaceholder('/path/to/your/repo')
-					.setValue(this.plugin.settings.repoPath)
+					.setValue(this.plugin.settings.repoPath || '')
 					.onChange(async (value) => {
 						this.plugin.settings.repoPath = value
 						await this.plugin.saveSettings()
-					}),
-			)
+					})
+			})
 			.addButton((button) => {
+				button.buttonEl.id = 'validate-repo-path-button'
 				button
-					.setButtonText('Check')
+					.setButtonText('Validate')
 					.setTooltip('Checks if the folder path is valid')
 					.onClick(async () => {
-						if (!this.plugin.settings.repoPath) {
-							return new Notice('Please enter a repo folder path.')
+						const { data, error } = await this.plugin.validateRepoPath()
+						if (error) {
+							button.setWarning()
+							button.setButtonText('Invalid')
+							button.buttonEl.classList.remove('mod-success')
+							button.buttonEl.classList.add('mod-warning')
+							new TDNotice(error)
+							return
 						}
-						if (
-							this.plugin.settings.repoPath.includes('https://') ||
-							this.plugin.settings.repoPath.includes('http://')
-						) {
-							return new Notice('URLs are not currently supported.')
-						}
-						if (!fs.existsSync(this.plugin.settings.repoPath)) {
-							return new Notice('repo path does not exist.')
-						}
-
-						this.plugin.settings.repoPath = normalizePath(
-							this.plugin.settings.repoPath,
-						)
-
-						simpleGit(this.plugin.settings.repoPath).checkIsRepo(
-							CheckRepoActions.IS_REPO_ROOT,
-							(err, isRepo) => {
-								if (err) {
-									return new Notice(`Error checking repository: ${err.message}`)
-								}
-								if (isRepo) {
-									button.setIcon('check')
-									return new Notice('Repository path is valid.')
-								}
-								new Notice(
-									'Must be the root of the repo. Please check your settings.',
-								)
-							},
-						)
-						console.log('saving repo path', this.plugin.settings.repoPath)
+						button.setIcon('check')
+						button.setTooltip('Repo path is valid')
+						button.buttonEl.classList.remove('mod-warning')
+						button.buttonEl.classList.add('mod-success')
+						new TDNotice('Repo path is valid')
 						await this.plugin.saveSettings()
 					})
 			})
@@ -106,70 +83,68 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Branch Name')
 			.setDesc('Enter the branch name to checkout')
-			.addText((text) =>
-				text
-					.setPlaceholder(DEFAULT_SETTINGS.branchName)
-					.setValue(this.plugin.settings.branchName)
+			.addText((textElement) => {
+				const inputEl = textElement.inputEl
+				inputEl.id = 'branch-name-input'
+				textElement
+					.setPlaceholder(DEFAULT_SETTINGS.branchName || '')
+					.setValue(this.plugin.settings.branchName || '')
 					.onChange(async (value) => {
-						this.plugin.checkoutBranch(value)
 						this.plugin.settings.branchName = value
 						await this.plugin.saveSettings()
-					}),
-			)
+					})
+			})
+			// add button to checkout branch
+			.addButton((button) => {
+				button.buttonEl.id = 'checkout-branch-button'
+				button.setButtonText('Checkout')
+				button.setTooltip('Checkout the branch')
+				button.onClick(async () => {
+					const modal = new BranchSuggestModal(this.plugin)
+					modal.open()
+					await this.plugin.saveSettings()
+				})
+			})
 
 		new Setting(containerEl)
-			.setName('Default Note')
+			.setName('Note to Append')
 			.setDesc('The note where TODOs will be appended')
-			.addText((text) =>
+			.addText((text) => {
+				text.inputEl.id = 'todo-note-input'
 				text
-					.setPlaceholder('Code TODOs')
+					.setPlaceholder(DEFAULT_SETTINGS.todoNote)
 					.setValue(this.plugin.settings.todoNote)
-					.setDisabled(true),
-			)
+					.setDisabled(true)
+			})
 			.addButton((button) =>
-				button.setButtonText('Select').onClick(() => {
-					const modal = new FileSuggestModal(this.app, (file) => {
-						if (file instanceof TFile) {
-							console.log('selected file', file)
-							this.plugin.settings.todoNote = file.path
-							this.plugin.saveSettings()
-						}
-					})
-					modal.onChooseItem = (item) => {
-						console.log('selected item', item)
-						this.plugin.settings.todoNote = item.path
-						modal.inputEl.value = item.path
-						this.plugin.saveSettings()
-					}
-					modal.open()
-				}),
+				button
+					.setButtonText('Select')
+					.setTooltip('Select the note where TODOs will be appended')
+					.onClick(async () => {
+						await this.plugin.selectTodoNote()
+					}),
 			)
 
 		new Setting(containerEl)
 			.setName('TODO Heading')
-			.setDesc(
-				'Heading under which extracted TODOs will be placed. NOTE: if you use emojis/stickers, they must be present here! ex: ## :LiCalendarDays: Planned',
-			)
-			.addText((text) =>
-				text
-					.setPlaceholder('## Extracted TODOs')
+			.setDesc('Heading under which extracted TODOs will be appended')
+			.addText((textElement) => {
+				const inputEl = textElement.inputEl
+				inputEl.id = 'todo-heading-input'
+				textElement
+					.setPlaceholder(DEFAULT_SETTINGS.todoHeading)
 					.setValue(this.plugin.settings.todoHeading)
-
 					.onChange(async (value) => {
 						this.plugin.settings.todoHeading = value
 						await this.plugin.saveSettings()
-					}),
-			)
+					})
+			})
 			.addButton((button) => {
-				button.setButtonText('Check').onClick(async () => {
-					console.log(
-						'validating TODO heading',
-						this.plugin.settings.todoHeading,
-					)
-					await this.plugin.validateTodoHeading(
-						this.plugin.settings.todoNote || DEFAULT_SETTINGS.todoNote,
-					)
-					new Notice('TODO heading is valid')
+				button.setButtonText('Select')
+				button.setTooltip('Select the heading from the TODO note')
+				button.onClick(async () => {
+					await this.plugin.selectTodoHeading()
+					await this.plugin.saveSettings()
 				})
 			})
 
@@ -178,8 +153,8 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 			.setDesc('Optional tag to add to the TODO note (without #)')
 			.addText((text) =>
 				text
-					.setPlaceholder('todos')
-					.setValue(this.plugin.settings.noteTag)
+					.setPlaceholder(DEFAULT_SETTINGS.noteTag || '')
+					.setValue(this.plugin.settings.noteTag || '')
 					.onChange(async (value) => {
 						this.plugin.settings.noteTag = value
 						await this.plugin.saveSettings()
@@ -189,12 +164,12 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Auto-pull Interval')
 			.setDesc(
-				'Interval in minutes to automatically extract TODOs (0 to disable)',
+				'Interval (in minutes) to automatically extract TODOs (0 to disable)',
 			)
 			.addText((text) =>
 				text
 					.setPlaceholder('0')
-					.setValue(String(this.plugin.settings.autoPullInterval))
+					.setValue(this.plugin.settings.autoPullInterval.toString())
 					.onChange(async (value) => {
 						const numValue = Number(value)
 						this.plugin.settings.autoPullInterval = Number.isNaN(numValue)
@@ -207,8 +182,8 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('File Extensions')
 			.setDesc('Comma-separated list of file extensions to scan for TODOs')
-			.addText((text) =>
-				text
+			.addText((textElement) =>
+				textElement
 					.setPlaceholder('ts,js,tsx,jsx')
 					.setValue(this.plugin.settings.fileExtensions.join(','))
 					.onChange(async (value) => {
@@ -230,8 +205,12 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 					.setPlaceholder('vscode')
 					.setValue(this.plugin.settings.editorPrefix)
 					.onChange(async (value) => {
+						if (!value) {
+							this.plugin.settings.editorPrefix = DEFAULT_SETTINGS.editorPrefix
+						}
 						this.plugin.settings.editorPrefix = value
 						await this.plugin.saveSettings()
+						await this.plugin.loadSettings()
 					}),
 			)
 
@@ -245,32 +224,10 @@ export class TodoExtractorSettingTab extends PluginSettingTab {
 					.setPlaceholder('//\\s*TODO:,#\\s*TODO:,{/\\*\\s*TODO:')
 					.setValue(this.plugin.settings.todoCommentPattern)
 					.onChange(async (value) => {
-						if (!value) {
-							this.plugin.settings.todoCommentPattern =
-								DEFAULT_SETTINGS.todoCommentPattern
-							return new Notice('Empty pattern value, using default')
-						}
-						this.plugin.settings.todoCommentPattern = value
+						this.plugin.settings.todoCommentPattern =
+							value || DEFAULT_SETTINGS.todoCommentPattern
 						await this.plugin.saveSettings()
 					}),
 			)
-	}
-}
-
-class FileSuggestModal extends FuzzySuggestModal<TFile> {
-	constructor(app: App, onChooseItem: (file: TFile) => void) {
-		super(app)
-		this.onChooseItem = onChooseItem
-	}
-
-	getItems(): TFile[] {
-		return this.app.vault.getMarkdownFiles()
-	}
-
-	getItemText(file: TFile): string {
-		return file.path
-	}
-	onChooseItem(item: TFile, evt: MouseEvent | KeyboardEvent): void {
-		this.onChooseItem(item, evt)
 	}
 }

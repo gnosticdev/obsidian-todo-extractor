@@ -1,101 +1,222 @@
+import { TDNotice } from '@/notice'
+import type { ITodoExtractorPlugin } from '@/types'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { Notice, Plugin, TFile } from 'obsidian'
-import simpleGit, { grepQueryBuilder } from 'simple-git'
-import type { SimpleGit } from 'simple-git/dist/typings/simple-git'
+import { FileView, normalizePath, Plugin, type TFile } from 'obsidian'
+import simpleGit, { grepQueryBuilder, type SimpleGit } from 'simple-git'
+import { BranchSuggestModal } from './BranchSuggestModal'
+import { FileSuggestModal } from './FileSuggestModal'
+import { TodoHeadingModal } from './TodoHeadingModal'
 import {
 	DEFAULT_SETTINGS,
 	TodoExtractorSettingTab,
 	type TodoExtractorSettings,
 } from './settings'
+import {
+	createErrorResponse,
+	createSuccessResponse,
+	isDev,
+	styleText,
+} from './utils'
 
-// create style text for console log
-const colorMap = {
-	bgGreen: '\x1b[42m',
-	green: '\x1b[32m',
-	bgRed: '\x1b[41m',
-	bgBlue: '\x1b[44m',
-}
+type TodoResult = { previewText: string; filePath: string; lineNumber: number }
 
-type TodoResult = { text: string; file: string; line: number }
-
-const TODO_REGEX_MD = /- \[[ xX]\] (TODO: .*?) \[.*\]\((.*)\)/
-
-export const styleText = (style: keyof typeof colorMap, text: string) => {
-	const color = colorMap[style as keyof typeof colorMap] || ''
-	const reset = '\x1b[0m'
-	// add black foreground color to the text
-	return `${color}\x1b[30m${text}${reset}`
-}
-/**
- * TODO: Extract TODOs from codebase and write to a note
- */
-export default class TodoExtractorPlugin extends Plugin {
+export default class TodoExtractorPlugin
+	extends Plugin
+	implements ITodoExtractorPlugin
+{
 	public settings: TodoExtractorSettings
-	public normalizedFolderPath: string
+	public git: SimpleGit | null
 
-	public git: SimpleGit
+	public async loadSettings() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData())
+	}
+
+	public async saveSettings() {
+		await this.saveData(this.settings)
+	}
 
 	async onload() {
 		await this.loadSettings()
 
 		this.addSettingTab(new TodoExtractorSettingTab(this.app, this))
 
-		process.env.NODE_ENV === 'development' &&
+		isDev &&
 			console.log(
 				styleText('bgBlue', 'Loaded Todo Extractor: settings'),
 				this.settings,
 			)
 
-		if (!this.settings.repoPath) {
-			return new Notice('Please set the repository path in the plugin settings')
-		}
-		this.git = simpleGit({ baseDir: this.settings.repoPath })
-		if (!this.git.checkIsRepo()) {
-			return new Notice('Please set the repository path in the plugin settings')
+		// Initialize git
+		try {
+			// Make sure this setting exists and is set correctly
+			const repoPath = this.settings.repoPath
+			if (!repoPath) {
+				return
+			}
+			// This will throw an error if it's not a valid repo
+			const git = simpleGit(repoPath)
+			const isRepo = await git.checkIsRepo()
+			if (isRepo) {
+				this.git = git
+				isDev &&
+					console.log(styleText('green', `Git initialized on ${repoPath}`))
+			}
+		} catch (error) {
+			console.error('Failed to initialize git:', error)
+			new TDNotice(
+				'Failed to initialize git. Please check your repository path in settings.',
+			)
 		}
 
 		this.addCommand({
 			id: 'extract-todos',
-			name: 'Extract TODOs',
-			callback: () => this.extractTodos(),
+			// only allow the command to run if the repo path is set and valid
+			callback: () =>
+				this.validateRepoPath().then((isValid) => {
+					if (isValid) {
+						this.extractTodos()
+					} else {
+						new TDNotice(
+							'Please set the repository path in the plugin settings',
+						)
+					}
+				}),
+			// get the repo name from the repo folder name
+			name: `Extract TODOs - ${path.basename(this.settings.repoPath || '')}`,
 		})
 
-		await this.validateTodoHeading(
-			this.settings.todoNote || DEFAULT_SETTINGS.todoNote,
+		this.addCommand({
+			id: 'select-todo-note',
+			name: 'Select Todo Note',
+			callback: () => this.selectTodoNote(),
+		})
+
+		this.addCommand({
+			id: 'select-branch',
+			name: 'Select Branch',
+			callback: () => {
+				try {
+					const git = simpleGit(this.settings.repoPath)
+					if (git) {
+						new BranchSuggestModal(this).open()
+					} else {
+						new TDNotice(
+							'No git repo found. Please check your repository settings.',
+						)
+					}
+				} catch (error) {
+					console.error('Error getting branches:', error)
+					new TDNotice(
+						'No git repo found. Please check your repository settings.',
+					)
+				}
+			},
+		})
+	}
+
+	public loadCurrentTodoNote(): TFile | null {
+		return this.app.vault.getFileByPath(this.settings.todoNote)
+	}
+
+	/**
+	 * Open a modal to select the todo note
+	 */
+	async selectTodoNote(): Promise<void> {
+		const modal = new FileSuggestModal(
+			this,
+			async (file: TFile) => {
+				// get all the active tabs
+				const layout = this.app.workspace.getLayout()
+				this.settings.todoNote = file.path
+				isDev && console.log('layout', layout)
+				// Update the settings
+				await this.saveSettings()
+				this.app.workspace.iterateRootLeaves(async (leaf) => {
+					isDev && console.log('leaf', leaf)
+					const { view } = leaf
+					if (view instanceof FileView && view.file?.path === file.path) {
+						isDev && console.log('opened', file.path)
+						this.app.workspace.setActiveLeaf(leaf, { focus: true })
+						return
+					}
+				})
+			},
+			'Select Todo Note',
 		)
+		modal.open()
 	}
 
-	async checkoutBranch(branchName: string) {
-		await this.git.checkoutLocalBranch(branchName, (err) => {
-			if (err) {
-				console.error('Error checking out branch:', err)
-				new Notice(`Error checking out branch: ${err.message}`)
-			} else {
-				new Notice(`Checked out branch: ${branchName}`)
-			}
+	/**
+	 * Open a modal to select the todo heading
+	 */
+	async selectTodoHeading() {
+		const modal = new TodoHeadingModal(this, async (item) => {
+			this.settings.todoHeading = item
+			await this.saveSettings()
 		})
+		modal.open()
 	}
 
+	/**
+	 * Only invoke this when the user has clicked the validate button, or has selected a command that requires a valid repo path
+	 */
+	async validateRepoPath() {
+		if (!this.settings.repoPath) {
+			return createErrorResponse('No repo path set')
+		}
+		if (
+			this.settings.repoPath.includes('https://') ||
+			this.settings.repoPath.includes('http://')
+		) {
+			new TDNotice('URLs are not currently supported.')
+			return createErrorResponse('URLs are not currently supported.')
+		}
+		if (!fs.existsSync(this.settings.repoPath)) {
+			return createErrorResponse('repo path does not exist.')
+		}
+		this.settings.repoPath = normalizePath(this.settings.repoPath)
+
+		try {
+			const git = simpleGit({ baseDir: this.settings.repoPath })
+			const isRepo = await git.checkIsRepo()
+			if (!isRepo) {
+				return createErrorResponse('Not a git repository')
+			}
+			return createSuccessResponse((await git.branchLocal()).branches)
+		} catch (error) {
+			console.error('Error initializing git:', error)
+			return createErrorResponse(`Error validating repo path: ${error.message}`)
+		}
+	}
+
+	/**
+	 * Extract TODOs from the codebase and write to the todo note
+	 */
 	async extractTodos() {
 		try {
 			const todos = await this.grepTodos()
-			console.log(`Found ${todos.length} TODOs`)
+			isDev && console.log(`Found ${todos.length} TODOs`)
 			if (todos.length > 0) {
 				await this.writeTodosToNote(todos)
 			} else {
-				new Notice('No TODOs found in the repository')
+				new TDNotice('No TODOs found in the repository')
 			}
 		} catch (error) {
 			console.error(error)
-			new Notice(`Error extracting TODOs: ${error.message}`)
+			new TDNotice(`Error extracting TODOs: ${error.message}`)
 		}
 	}
 
 	/**
 	 * Use git grep to search for TODOs in the Repository
 	 */
-	public async grepTodos() {
+	private async grepTodos() {
 		// gets the todos for ts, js, tsx, jsx files
+		if (!this.git) {
+			new TDNotice('Please set the repository path in the plugin settings')
+			return []
+		}
 		const patterns = this.settings.todoCommentPattern.split(',')
 		const mainPattern = patterns.shift() ?? DEFAULT_SETTINGS.todoCommentPattern
 		let query = grepQueryBuilder(mainPattern)
@@ -103,51 +224,42 @@ export default class TodoExtractorPlugin extends Plugin {
 		for (const pattern of patterns) {
 			query = query.param(pattern)
 		}
-		console.log('Grep query:', query)
+		isDev && console.log('Grep query:', query)
 		const matches = await this.git.grep(query)
 
 		const results: TodoResult[] = []
-		for (const _path of matches.paths) {
-			console.log(styleText('bgGreen', 'file'), _path)
-			console.log(matches.results[_path])
-			const grepMatch = matches.results[_path]
+		isDev && console.log('matches', matches)
+		for (const matchPath of matches.paths) {
+			const grepMatch = matches.results[matchPath]
 			for (const result of grepMatch ?? []) {
 				results.push({
-					line: result.line,
-					text: result.preview.trim(),
-					file: result.path,
+					lineNumber: result.line,
+					previewText: result.preview.trim(),
+					filePath: result.path,
 				})
 			}
 		}
 		return results
 	}
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData())
-	}
-
-	async saveSettings() {
-		for (const [key, value] of Object.entries(this.settings)) {
-			if (!value) {
-				Object.assign(this.settings, {
-					[key]: DEFAULT_SETTINGS[key as keyof TodoExtractorSettings],
-				})
-			}
-		}
-		await this.saveData(this.settings)
-	}
-
 	private async loadExistingTodos(): Promise<Set<string>> {
-		const noteName = `${this.settings.todoNote || 'Code TODOs'}.md`
-		const todoNote = this.app.vault.getFileByPath(noteName)
-		const existingTodos = new Set<string>()
+		/**
+		 * Regex to match TODOs in Markdown files
+		 */
+		const TODO_REGEX_MD = /- \[[ xX]\] (TODO: .*?) \[.*\]\((.*)\)/
 
-		if (!(todoNote instanceof TFile)) {
-			console.log('Note does not exist, creating new note')
-			return existingTodos
+		const existingTodos = new Set<string>()
+		const todoNote = this.loadCurrentTodoNote()
+		if (!todoNote) {
+			await this.selectTodoNote()
+			new TDNotice('Select a note to store TODOs, then run the command again')
+			return new Set<string>()
 		}
 
-		const content = await this.app.vault.cachedRead(todoNote)
+		const content = await this.app.vault.process(todoNote, (text) => {
+			return text
+		})
+
 		const lines = content.split('\n')
 		for (const line of lines) {
 			// only store the TODO text not the checkbox
@@ -162,17 +274,26 @@ export default class TodoExtractorPlugin extends Plugin {
 		return existingTodos
 	}
 
-	async writeTodosToNote(todos: TodoResult[]) {
+	private async writeTodosToNote(todos: TodoResult[]) {
+		let todoNote = this.app.vault.getFileByPath(this.settings.todoNote)
+		if (!todoNote) {
+			new TDNotice('Todo note does not exist')
+			// if the todoNote is empty, then the todoHeading will be empty
+			todoNote = await this.app.vault.create(
+				DEFAULT_SETTINGS.todoNote,
+				`# ${DEFAULT_SETTINGS.todoHeading}`,
+			)
+		}
+
 		const existingTodos = await this.loadExistingTodos()
 		const notePath = this.settings.todoNote || 'Code TODOs.md'
 		console.log(`Attempting to write TODOs to note: ${notePath}`)
 
 		try {
-			let todoNote = this.app.vault.getAbstractFileByPath(notePath)
-			console.log('Existing note:', todoNote)
+			isDev && console.log('Existing note:', todoNote)
 
-			if (!(todoNote instanceof TFile)) {
-				console.log('Note does not exist, creating new note')
+			if (!todoNote) {
+				new TDNotice(`Note not found, creating new note: ${notePath}`)
 				todoNote = await this.app.vault.create(
 					notePath,
 					`# ${path.basename(notePath, '.md')}\n\n${this.settings.todoHeading}\n\n`,
@@ -182,22 +303,21 @@ export default class TodoExtractorPlugin extends Plugin {
 
 			const existingContent = await this.app.vault.read(todoNote as TFile)
 
-			// Check if the heading already exists in the note
-			const headingRegex = new RegExp(`^${this.settings.todoHeading}$`, 'm')
-			const headingExists = headingRegex.test(existingContent)
-
 			const newTodos = todos
 				.map((todo) => {
-					const absolutePath = path.resolve(this.settings.repoPath, todo.file)
-					const editorLink = `${this.settings.editorPrefix}://file/${absolutePath}:${todo.line}`
-					const matcher = todo.text
+					const absolutePath = path.resolve(
+						this.settings.repoPath || '',
+						todo.filePath,
+					)
+					const editorLink = `${this.settings.editorPrefix}://file/${absolutePath}:${todo.lineNumber}`
+					const matcher = todo.previewText
 						.replace(/\/\/|\/\*|\*\/|\{|\}|\#/g, '')
 						.trim()
 
-					console.log('matcher:', matcher)
+					isDev && console.log('matcher:', matcher)
 					return {
 						matcher,
-						line: `- [ ] ${matcher} [${todo.file}:${todo.line}](${editorLink})`,
+						line: `- [ ] ${matcher}\n[${todo.filePath}:${todo.lineNumber}](${editorLink})`,
 					}
 				})
 				.filter((todoLine) => !existingTodos.has(todoLine.matcher))
@@ -205,7 +325,7 @@ export default class TodoExtractorPlugin extends Plugin {
 				.join('\n')
 
 			if (newTodos.length === 0) {
-				new Notice('No new TODOs found')
+				new TDNotice('No new TODOs found')
 				return
 			}
 
@@ -213,22 +333,26 @@ export default class TodoExtractorPlugin extends Plugin {
 				? `\n\n#${this.settings.noteTag}`
 				: ''
 
-			// If the heading exists, insert new TODOs after it
+			// Check if the heading already exists in the note
+			const fileCache = this.app.metadataCache.getFileCache(todoNote)
+			const headingsCache = fileCache?.headings ?? []
+			const headingExists = headingsCache.some(
+				(heading) => heading.heading === this.settings.todoHeading,
+			)
+
 			let newContent = ''
 
-			if (headingExists) {
+			const listItems = this.app.metadataCache.getFileCache(todoNote)?.listItems
+			isDev && console.log('listItems', listItems)
+
+			if (!headingExists) {
+				newContent = `${existingContent}\n\n${this.settings.todoHeading}\n\n${newTodos}${tagLine}`
+			} else {
 				// If the heading exists, insert new TODOs after it
 				newContent = existingContent.replace(
-					headingRegex,
-					`${this.settings.todoHeading}\n\n${newTodos}`,
+					`${this.settings.todoHeading}\n\n`,
+					`${this.settings.todoHeading}\n\n${newTodos}${tagLine}`,
 				)
-			} else {
-				if (this.settings.todoHeading !== DEFAULT_SETTINGS.todoHeading) {
-					new Notice(
-						'Heading not found, appending TODOs to the end of the note',
-					)
-				}
-				newContent = `${existingContent}\n\n${this.settings.todoHeading}\n\n${newTodos}${tagLine}`
 			}
 
 			console.log('New content length:', newContent.length)
@@ -237,29 +361,12 @@ export default class TodoExtractorPlugin extends Plugin {
 				`Updated ${newTodos.split('\n').length} new TODOs in ${notePath}`,
 			)
 
-			new Notice(
+			new TDNotice(
 				`Added ${newTodos.split('\n').length} new TODOs to ${this.settings.todoNote}`,
 			)
 		} catch (error) {
 			console.error('Error in writeTodosToNote:', error)
-			new Notice(`Error writing TODOs to note: ${error.message}`)
+			new TDNotice(`Error writing TODOs to note: ${error.message}`)
 		}
-	}
-
-	// Add this new function
-	async validateTodoHeading(notePath: string) {
-		const todoNote = this.app.vault.getFileByPath(notePath)
-		if (!todoNote) {
-			console.log('validateTodoHeading: todoNote does not exist')
-			return false
-		}
-
-		const content = await this.app.vault.read(todoNote as TFile)
-		console.log('validateTodoHeading: content', content)
-		// validate content
-		const headingRegex = new RegExp(`^${this.settings.todoHeading}$`, 'm')
-		const headingExists = headingRegex.test(content)
-		console.log('validateTodoHeading: headingExists', headingExists)
-		return headingExists
 	}
 }
